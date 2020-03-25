@@ -6246,17 +6246,6 @@ namespace Seatbelt
                     }
                 }
             }
-
-            //Console.WriteLine("\r\n\r\n=== Putty SSH Host Key Recent Hosts ===\r\n");
-
-            //Dictionary<string, object> sessions = GetRegValues("HKCU", "Software\\SimonTatham\\PuTTY\\SshHostKeys\\");
-            //if (sessions != null)
-            //{
-            //    foreach (KeyValuePair<string, object> kvp in sessions)
-            //    {
-            //        Console.WriteLine("    {0,-10}", kvp.Key);
-            //    }
-            //}
         }
 
         public static void ListCloudCreds()
@@ -6435,6 +6424,34 @@ namespace Seatbelt
             }
         }
 
+        private static void ListRecentFilesinFolder(string recentPath, DateTime startTime, Object shellObj)
+        {
+            string[] recentFiles = Directory.GetFiles(recentPath, "*.lnk", SearchOption.AllDirectories);
+
+            foreach (string recentFile in recentFiles)
+            {
+                try
+                {
+                    DateTime lastAccessed = System.IO.File.GetLastAccessTime(recentFile);
+
+                    if (lastAccessed > startTime)
+                    {
+                        // invoke the WshShell com object, creating a shortcut to then extract the TargetPath from
+                        Object shortcut = shellObj.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shellObj, new object[] { recentFile });
+                        Object TargetPath = shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, new object[] { });
+                        if (TargetPath.ToString().Trim() != "")
+                        {
+                            Console.WriteLine("    Target:       {0,-10}", TargetPath.ToString());
+                            Console.WriteLine("        Accessed: {0}\r\n", lastAccessed);
+                        }
+                        Marshal.ReleaseComObject(shortcut);
+                        shortcut = null;
+                    }
+                }
+                catch (PathTooLongException) { }
+            }
+        }
+
         public static void ListRecentFiles()
         {
             // parses recent file shortcuts via COM
@@ -6468,35 +6485,7 @@ namespace Seatbelt
                         if (!(dir.EndsWith("Public") || dir.EndsWith("Default") || dir.EndsWith("Default User") || dir.EndsWith("All Users")))
                         {
                             string recentPath = String.Format("{0}\\AppData\\Roaming\\Microsoft\\Windows\\Recent\\", dir);
-                            try
-                            {
-                                string[] recentFiles = Directory.GetFiles(recentPath, "*.lnk", SearchOption.AllDirectories);
-
-                                if (recentFiles.Length != 0)
-                                {
-                                    Console.WriteLine("   {0} :\r\n", userName);
-                                    foreach (string recentFile in recentFiles)
-                                    {
-                                        DateTime lastAccessed = System.IO.File.GetLastAccessTime(recentFile);
-
-                                        if (lastAccessed > startTime)
-                                        {
-                                            // invoke the WshShell com object, creating a shortcut to then extract the TargetPath from
-                                            Object shortcut = shellObj.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shellObj, new object[] { recentFile });
-                                            Object TargetPath = shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, new object[] { });
-
-                                            if (TargetPath.ToString().Trim() != "")
-                                            {
-                                                Console.WriteLine("      Target:       {0,-10}", TargetPath.ToString());
-                                                Console.WriteLine("          Accessed: {0}\r\n", lastAccessed);
-                                            }
-                                            Marshal.ReleaseComObject(shortcut);
-                                            shortcut = null;
-                                        }
-                                    }
-                                }
-                            }
-                            catch { }
+                            ListRecentFilesinFolder(recentPath, startTime, shellObj);
                         }
                     }
                 }
@@ -6505,31 +6494,7 @@ namespace Seatbelt
                     Console.WriteLine("\r\n\r\n=== Recently Accessed Files (Current User) Last {0} Days ===\r\n", lastDays);
 
                     string recentPath = String.Format("{0}\\Microsoft\\Windows\\Recent\\", System.Environment.GetEnvironmentVariable("APPDATA"));
-
-                    string[] recentFiles = Directory.GetFiles(recentPath, "*.lnk", SearchOption.AllDirectories);
-
-                    foreach (string recentFile in recentFiles)
-                    {
-                        // old method (needed interop dll)
-                        //WshShell shell = new WshShell();
-                        //IWshShortcut shortcut = (IWshShortcut)shell.CreateShortcut(recentFile);
-
-                        DateTime lastAccessed = System.IO.File.GetLastAccessTime(recentFile);
-
-                        if (lastAccessed > startTime)
-                        {
-                            // invoke the WshShell com object, creating a shortcut to then extract the TargetPath from
-                            Object shortcut = shellObj.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shellObj, new object[] { recentFile });
-                            Object TargetPath = shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, new object[] { });
-                            if (TargetPath.ToString().Trim() != "")
-                            {
-                                Console.WriteLine("    Target:       {0,-10}", TargetPath.ToString());
-                                Console.WriteLine("        Accessed: {0}\r\n", lastAccessed);
-                            }
-                            Marshal.ReleaseComObject(shortcut);
-                            shortcut = null;
-                        }
-                    }
+                    ListRecentFilesinFolder(recentPath, startTime, shellObj);
                 }
                 // release the WshShell COM object
                 Marshal.ReleaseComObject(shellObj);
@@ -6541,48 +6506,57 @@ namespace Seatbelt
             }
         }
 
+        private static void PrintListOfFiles(List<string> files)
+        {
+            foreach (string file in files)
+            {
+                try
+                {
+
+                    DateTime lastAccessed = File.GetLastAccessTime(file);
+                    DateTime lastModified = File.GetLastWriteTime(file);
+                    long size = new FileInfo(file).Length;
+                    size /= 1024;
+
+                    Console.WriteLine("    File:         {0}", file);
+                    Console.WriteLine("        Accessed: {0}", lastAccessed);
+                    Console.WriteLine("        Modified: {0}", lastModified);
+                    Console.WriteLine("        Size:     {0} Kb", size);
+
+                }
+                catch (PathTooLongException) { }
+            }
+        }
+
         public static void ListInterestingFiles()
         {
             // returns files (w/ modification dates) that match the given pattern below
             string patterns = "*pass *;*diagram*;*.pdf;*.vsd;*.doc;*docx;*.xls;*.xlsx;*.kdbx;*.key;KeePass.config";
+            string searchPath;
 
             if (IsHighIntegrity())
             {
                 Console.WriteLine("\r\n\r\n=== Interesting Files (All Users) ===\r\n");
-
-                string searchPath = String.Format("{0}\\Users\\", Environment.GetEnvironmentVariable("SystemDrive"));
-
-                List<string> files = FindFiles(searchPath, patterns);
-
-                foreach (string file in files)
-                {
-                    DateTime lastAccessed = System.IO.File.GetLastAccessTime(file);
-                    DateTime lastModified = System.IO.File.GetLastWriteTime(file);
-                    Console.WriteLine("    File:         {0}", file);
-                    Console.WriteLine("        Accessed: {0}", lastAccessed);
-                    Console.WriteLine("        Modified: {0}", lastModified);
-                }
+                searchPath = String.Format("{0}\\Users\\", Environment.GetEnvironmentVariable("SystemDrive"));
             }
-
             else
             {
-                Console.WriteLine("\r\n\r\n=== Interesting Files (Current User) ===\r\n");
+                Console.WriteLine("\r\n\r\n=== Interesting Files (User Profile) ===\r\n");
+                searchPath = Environment.GetEnvironmentVariable("USERPROFILE");
+            }
 
-                string searchPath = Environment.GetEnvironmentVariable("USERPROFILE");
+            List<string> fileList = FindFiles(searchPath, patterns);
+            PrintListOfFiles(fileList);
 
-                List<string> files = FindFiles(searchPath, patterns);
-
-                foreach (string file in files)
-                {
-                    DateTime lastAccessed = System.IO.File.GetLastAccessTime(file);
-                    DateTime lastModified = System.IO.File.GetLastWriteTime(file);
-                    Console.WriteLine("    File:         {0}", file);
-                    Console.WriteLine("        Accessed: {0}", lastAccessed);
-                    Console.WriteLine("        Modified: {0}", lastModified);
-                }
+            searchPath = String.Format("{0}{1}", Environment.GetEnvironmentVariable("HOMEDRIVE"), Environment.GetEnvironmentVariable("HOMEPATH"));
+            if (searchPath != Environment.GetEnvironmentVariable("USERPROFILE"))
+            {
+                Console.WriteLine("\r\n\r\n=== Interesting Files (Home drive) ===\r\n");
+                List<string> homeDriveFiles = FindFiles(searchPath, patterns);
+                PrintListOfFiles(homeDriveFiles);
+                fileList.AddRange(homeDriveFiles);
             }
         }
-
 
         // misc checks
         public static void ListPatches()
